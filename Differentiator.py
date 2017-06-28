@@ -309,18 +309,22 @@ class Function:
 
         # Handle special representations for expressions vs. compositions or Base function
         if isinstance(func1, Base) or func1.get_op() == 'o':
-            repr_1 = func1.__repr__()
+            repr_1 += func1.__repr__()
         else:
-            repr_1 = ('(%s)' % func1.__repr__())
+            repr_1 += ('(%s)' % func1.__repr__())
+
         if isinstance(func2, Base) or func2.get_op() == 'o':
-            repr_2 = func2.__repr__()
+            repr_2 += func2.__repr__()
         else:
-            repr_2 = ('(%s)' % func2.__repr__())
+            repr_2 += ('(%s)' % func2.__repr__())
 
         # Special representations for arithmetic operations vs composition
-        #if self.operator != 'o':
-        return repr_1 + (' %s ' % self.operator) + repr_2
+        if self.operator != 'o':
+            return repr_1 + (' %s ' % self.operator) + repr_2
 
+        # TODO: finish this
+        # Don't include parentheses in general funcs' reprs, let other calling functions implement them if necessary
+        return func1.__repr__() + repr_2
 
     
     # TODO: add simplify function for added terms with same factors
