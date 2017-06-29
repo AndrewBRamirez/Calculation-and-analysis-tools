@@ -10,6 +10,7 @@
 # TODO: add good documentation to everything, not just sparse comments
 # Any and all necessary import statements
 import re
+import copy
 
 # Global variable(s)
 deriv_lib = dict()
@@ -54,27 +55,49 @@ class Scalar:
                     nums *= eval(fact)
                     continue  # And we're done with this factor
                 
-                # Check the length before checking for an inversion this way
-                if len(fact) >= 3:  # Could start with '1/' or '1 /'
-                    
-                    # Now actually check for the beginning of an inversion
-                    if fact[:2] == '1/' or fact[:3] == '1 /':
-                        
-                        # Check only after the division symbol, removing
-                        # excess white space
-                        term = fact[fact.index('/') + 1:].strip()
+                # Use a try-catch block to try to evaluate known values
+                try:  # Works if strings in expressions have defined values
+                    nums *= eval(fact)
 
-                        # The non-inverse is already in the expression list
-                        if term in exprs:
-                            
-                            # Then we cancel the non-inverse and continue
-                            exprs.remove(term)
-                        else:  # Then add it with no issue
-                            exprs.append(fact)
-                    else:
+                except NameError:  # This indicates variables aren't defined
+                    
+                    # Check the length before checking for an inversion this way
+                    if len(fact) >= 3:  # Could start with '1/' or '1 /'
                         
-                        # Check if the inverse is present - check all possible
-                        # formats
+                        # Now actually check for the beginning of an inversion
+                        if fact[:2] == '1/' or fact[:3] == '1 /':
+                            
+                            # Check only after the division symbol, removing
+                            # excess white space
+                            term = fact[fact.index('/') + 1:].strip()
+    
+                            # The non-inverse is already in the expression list
+                            if term in exprs:
+                                
+                                # Then we cancel the non-inverse and continue
+                                exprs.remove(term)
+                            else:  # Then add it with no issue
+                                exprs.append(fact)
+                        else:
+                            
+                            # Check if the inverse is present - check all
+                            # possible formats
+                            if ('1/' + fact) in exprs:
+                                exprs.remove('1/' + fact)
+                            elif ('1 /' + fact) in exprs:
+                                exprs.remove('1 /' + fact)
+                            elif ('1/ ' + fact) in exprs:
+                                exprs.remove('1/ ' + fact)
+                            elif ('1 / ' + fact) in exprs:
+                                exprs.remove('1 / ' + fact)
+                            
+                            # If no inverse deteced, add it to the factors
+                            else:
+                                exprs.append(fact)
+                    else:  # Can't possibly be an inverse expression or variable
+                        
+                        # Check if the inverse of the input is present in the
+                        # factors - check all possible formats
                         if ('1/' + fact) in exprs:
                             exprs.remove('1/' + fact)
                         elif ('1 /' + fact) in exprs:
@@ -83,24 +106,8 @@ class Scalar:
                             exprs.remove('1/ ' + fact)
                         elif ('1 / ' + fact) in exprs:
                             exprs.remove('1 / ' + fact)
-                        
-                        # If no inverse deteced, simply add it to the factors
                         else:
                             exprs.append(fact)
-                else:  # Can't possibly be an inverse expression or variable
-                    
-                    # Check if the inverse of the input is present in the
-                    # factors - check all possible formats
-                    if ('1/' + fact) in exprs:
-                        exprs.remove('1/' + fact)
-                    elif ('1 /' + fact) in exprs:
-                        exprs.remove('1 /' + fact)
-                    elif ('1/ ' + fact) in exprs:
-                        exprs.remove('1/ ' + fact)
-                    elif ('1 / ' + fact) in exprs:
-                        exprs.remove('1 / ' + fact)
-                    else:
-                        exprs.append(fact)
             else:  # This is put mostly for debugging purposes
                 raise ValueError('Unexpected input type: %s' % type(fact))
     
@@ -122,23 +129,22 @@ class Scalar:
             return self.factors[0]
         else:
             
-            # Indexing variable
-            i = 0
-            
             # Initialize the string we'd want to return, starting with the
             # numbers - if 1 is a factor and there are others, exclude it
-            if self.factors[0] == 1.0:
-                i += 1  # Skip the 1
+            if self.factors[0] != 1.0:
+                return_str += str(self.factors[0])  # Skip the 1
             
             # Loop through all factors forming them into a nice string
-            for fact in self.factors[i:]:
-                return_str += ('(' + fact + ')')
-            
+            for fact in self.factors[1:]:
+                return_str += ('(' + str(fact) + ')')
+
             return return_str
     
     # Use the above syntax to denote an addition and subtraction of scalars
     def __add__(self, other):  # TODO: generalize once functions are more clear
         return Scalar([(self.get_vals(), other.get_vals(), '+')])
+        # NOTE: model this and sub with functions always being first in a
+        # func list and scalars always second
     
     def __sub__(self, other):  # TODO: generalize here as above too
         return Scalar([(self.get_vals(), other.get_vals(), '-')])
@@ -226,6 +232,18 @@ class Scalar:
             else:  # As with simplify(), this is mostly for debugging purposes
                 raise ValueError('Unexpected input type: %s' % type(fact))
         return Scalar(new_lst)
+    
+    def sign(self):  # Get whether the scalar is positive or negative
+        if self.scalar.get_vals[0] > 0:
+            return 1
+        elif self.scalar.get_vals[0] < 0:
+            return -1
+        return 0
+    
+    def get_num(self):
+        # Return just the numerical (i.e. non-algebraic) value of the scalar
+        self.simplify()  # Make sure the numerical value is up to date
+        return self.factors[0]
                 
     def __repr__(self):
         
@@ -251,6 +269,7 @@ class Scalar:
     
     # Get the value of the scalar, aka its factor list
     def get_vals(self):
+        self.simplify()  # Ensure the most simplified form is returned
         return self.factors
     
     # Differentiation, made static since it's the same for all instances
@@ -277,10 +296,12 @@ class Function:
         """
         
         # Make sure the user gave reasonable inputs
-        if type(functions) is not tuple or type(scalar) is not Scalar or \
-                type(op) is not str:
+        if not isinstance(functions, tuple) or not isinstance(scalar, Scalar)\
+                or not isinstance(op, str):
             raise ValueError('Check the input types')
-        if len(functions) != 2 or None in functions:
+        if len(functions) != 2 or None in functions or \
+                (isinstance(functions[0], Scalar) and isinstance(functions[1],
+                                                                 Scalar)):
             raise ValueError('Please enter two functions')
         if op is None:
             raise ValueError('Please enter an operator')
@@ -290,8 +311,8 @@ class Function:
         self.scalar = scalar
         self.operator = op
         
-        # TODO: add simplification for user giving simple and simplifiable
-        # functions like Base() o Base() --> 2 * Base()
+        # Simplify the function from the get-go
+        self.simplify()
     
     def __repr__(self):
         
@@ -300,14 +321,20 @@ class Function:
         func2 = self.funcs[1]
 
         # Initialize repr strings for both halves of the function
-        repr_1 = ''
+        repr_1 = func1.scalar.__repr__()
         repr_2 = ''
+        # TODO: refine, checking to make sure hanging 1's aren't included
+        # Handle the two cases of what func2 can be
+        if isinstance(func2, Scalar):
+            repr_2 += func2.__repr__()
+        else:  # Must be a function, then
+            repr_2 += func2.scalar.__repr__()
 
         # Recursive definition is the most intuitive way to represent it
         # Note that the base cases for this recursion are the universal base
         # function and scalars
 
-        # Handle special representations for expressions vs. compositions or Base function
+        # Special representations of expressions vs. compositions or Base
         if isinstance(func1, Base) or func1.get_op() == 'o':
             repr_1 += func1.__repr__()
         else:
@@ -322,12 +349,93 @@ class Function:
         if self.operator != 'o':
             return repr_1 + (' %s ' % self.operator) + repr_2
 
-        # TODO: finish this
-        # Don't include parentheses in general funcs' reprs, let other calling functions implement them if necessary
+        # Note parentheses aren't included here - handle when called elsewhere
         return func1.__repr__() + repr_2
-
     
-    # TODO: add simplify function for added terms with same factors
+    def sign(self):  # Get whether the function is positive or negative
+        
+        # Simplify the function first
+        self.simplify()
+        
+        if self.scalar.get_vals[0] > 0:
+            return 1
+        elif self.scalar.get_vals[0] < 0:
+            return -1
+        return 0
+
+    # Combine scalars when two functions are added/subtracted with same scalars
+    # TODO: add simplification for user giving simple and simplifiable
+    # functions like Base() + Base() --> 2 * Base()
+    def simplify(self):
+        
+        # Handle the case where we're just adding 0
+        if isinstance(self.funcs[1], Scalar):
+            if self.funcs[1].get_vals == [0]:
+                new_funcs = copy.deepcopy(self.funcs[0].funcs)
+                
+                # Replace the internal function
+                self.funcs = new_funcs
+            else:
+                if self.funcs[1].sign() == -1:
+                    self.funcs[1] *= -1
+                    
+                    if self.operator == '+':
+                        self.operator = '-'
+                    elif self.operator == '-':
+                        self.operator = '+'
+        
+        # Handle simplifying negative functions
+        if self.funcs[1].sign() == -1:
+            if self.operator == '+':
+                self.operator = '-'
+            elif self.operator == '-':
+                self.operator = '+'
+        
+        # Check if we're subtracting two of the same function
+        if self.funcs[0].__repr__() == self.funcs[1].__repr__():
+            # We rely on the accuracy of the repr methods for this comparison
+            return Scalar([0])
+        
+        # Now check if the function can be simplified in a more basic way
+        if self.funcs[0].funcs == self.funcs[1].funcs:
+            pass  # Things like func + func = 2func
+        
+        # TODO: finish this, expanding for multiplication etc - need Pow
+    
+        # List of factors which will be transferred onto the outer function
+        new_factors = []
+
+        # Check for similar factors between the two functions
+        for factor in self.funcs[0].scalar.get_vals():  # [0] must be a function
+            
+            # Two cases: other function is a scalar or it's another function
+            if isinstance(self.funcs[1], Scalar):
+                
+                # Save shared factors in the new_factors list
+                if factor in self.funcs[1].get_vals():
+                    new_factors.append(factor)
+            
+            else:  # Function should be the only other case
+                
+                # Save factors shared between the two functions in the list
+                if factor in self.funcs[1].scalar.get_vals():
+                    new_factors.append(factor)
+        
+        # Now cancel the factors via multiplication or just removal of factors
+        for factor in new_factors:
+            
+            # Add factors to overall function
+            self.scalar *= factor
+            
+            # Take factors out of sub-functions
+            self.funcs[0] /= factor
+            self.funcs[1] /= factor
+        
+        # Lastly, simplify the sub-functions after this simplification
+        self.funcs[0].simplify()
+        self.funcs[1].simplify()
+        
+    # TODO: fix all arithmetic operations
     def __add__(self, other):
         # We can add functions to scalars or other functions
         if isinstance(other, float) or isinstance(other, int) or \
@@ -394,6 +502,9 @@ class Base(Function):
         # variable itself with a scalar
         super().__init__((variable, variable), scalar, 'o')
         self.variable = variable
+    
+    def simplify(self):
+        return None  # Placeholder so super class's simplify isn't called
     
     def __repr__(self):
         
